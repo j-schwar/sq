@@ -7,3 +7,6 @@ edition = "2024"
 anyhow = "1.0.98"
 serde = { version = "1.0.219", features = ["derive"] }
 keywords = { git = "https://github.com/j-schwar/keywords.git" }
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+test-log = { version = "0.2.18", features = ["trace"] }

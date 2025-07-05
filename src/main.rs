@@ -1,4 +1,5 @@
 mod arena;
+mod ast;
 mod schema;
 mod sql;
 mod syntax;

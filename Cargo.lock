@@ -109,7 +109,7 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 [[package]]
 name = "keywords"
 version = "0.1.0"
-source = "git+https://github.com/j-schwar/keywords.git#1638c40dc4e386afdf0ae9206161d719c8ed21ba"
+source = "git+https://github.com/j-schwar/keywords.git#70eace8d08143c90319c1e116ca2974c6d533a14"
 dependencies = [
  "serde",
 ]

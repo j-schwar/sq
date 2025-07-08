@@ -14,11 +14,17 @@ pub trait Arena<T> {
 }
 
 /// Identifier for an object stored in a [`PersistedArena`].
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct Id<T> {
     index: usize,
     #[serde(skip)]
     _marker: std::marker::PhantomData<T>,
+}
+
+impl<T> std::fmt::Debug for Id<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Id({})", self.index)
+    }
 }
 
 impl<T> Clone for Id<T> {

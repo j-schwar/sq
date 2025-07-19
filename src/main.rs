@@ -2,7 +2,6 @@ mod arena;
 mod ast;
 mod schema;
 mod sql;
-mod syntax;
 
 /*
 sel test q 'report code=visit.edit'

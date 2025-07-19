@@ -109,7 +109,7 @@ checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 [[package]]
 name = "keywords"
 version = "0.1.0"
-source = "git+https://github.com/j-schwar/keywords.git#70eace8d08143c90319c1e116ca2974c6d533a14"
+source = "git+https://github.com/j-schwar/keywords.git#96b2c4e43d4dc484ef5e67277466dc4d0745b853"
 dependencies = [
  "serde",
 ]
@@ -267,6 +267,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "slotmap"
+version = "1.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbff4acf519f630b3a3ddcfaea6c06b42174d9a44bc70c620e9ed1649d58b82a"
+dependencies = [
+ "serde",
+ "version_check",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -279,6 +289,7 @@ dependencies = [
  "anyhow",
  "keywords",
  "serde",
+ "slotmap",
  "test-log",
  "tracing",
  "tracing-subscriber",
@@ -404,6 +415,12 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "version_check"
+version = "0.9.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "winapi"

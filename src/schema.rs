@@ -1,7 +1,7 @@
 use std::{cell::RefCell, cmp::Ordering, fmt::Display};
 
 use keywords::{KeywordMap, Match};
-use serde::{Deserialize, Serialize, de::value};
+use serde::{Deserialize, Serialize};
 
 use crate::arena::{Arena, Id, PersistedArena};
 

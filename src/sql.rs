@@ -95,7 +95,7 @@ pub trait SqlDialect {
     fn from(&self, from: &SqlFromClause) -> String {
         let mut sql = self.object_ref(&from.object);
         for join in &from.joins {
-            sql.push_str(" ");
+            sql.push(' ');
             sql.push_str(&self.join(join));
         }
 
@@ -163,7 +163,7 @@ pub trait SqlDialect {
     }
 
     fn identifier(&self, ident: &str) -> String {
-        format!("{}", ident)
+        ident.to_string()
     }
 }
 

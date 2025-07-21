@@ -186,7 +186,7 @@ fn parse_object_tree<'a>(input: &'a str) -> ParseResult<'a, ObjectTree<String>> 
 
     // Next character should be '>', if not, we're done.
     let input = skip_whitespace(input);
-    if Some('>') != input.chars().next() {
+    if !input.starts_with('>') {
         tracing::trace!("remaining input=\"{}\"", input);
         return Ok((
             input,
@@ -239,7 +239,7 @@ fn parse_literal<'a>(input: &'a str) -> ParseResult<'a, Literal<'a>> {
     }
 
     // Check for integer literal (sequence of digits).
-    let next_non_digit = input.find(|c: char| !c.is_digit(10));
+    let next_non_digit = input.find(|c: char| !c.is_ascii_digit());
     if let Some(end) = next_non_digit {
         if end != 0 {
             let value = &input[..end];
@@ -270,20 +270,20 @@ fn parse_literal<'a>(input: &'a str) -> ParseResult<'a, Literal<'a>> {
 #[tracing::instrument(level = "trace", err)]
 fn parse_operator(input: &str) -> ParseResult<Operator> {
     let input = skip_whitespace(input);
-    if input.starts_with('=') {
-        return Ok((&input[1..], Operator::Eq));
-    } else if input.starts_with("!=") {
-        return Ok((&input[2..], Operator::Ne));
-    } else if input.starts_with('<') {
-        if input.starts_with("<=") {
-            return Ok((&input[2..], Operator::Le));
+    if let Some(rest) = input.strip_prefix("=") {
+        return Ok((rest, Operator::Eq));
+    } else if let Some(rest) = input.strip_prefix("!=") {
+        return Ok((rest, Operator::Ne));
+    } else if let Some(rest) = input.strip_prefix("<") {
+        if let Some(rest) = rest.strip_prefix("=") {
+            return Ok((rest, Operator::Le));
         }
-        return Ok((&input[1..], Operator::Lt));
-    } else if input.starts_with('>') {
-        if input.starts_with(">=") {
-            return Ok((&input[2..], Operator::Ge));
+        return Ok((rest, Operator::Lt));
+    } else if let Some(rest) = input.strip_prefix(">") {
+        if let Some(rest) = rest.strip_prefix("=") {
+            return Ok((rest, Operator::Ge));
         }
-        return Ok((&input[1..], Operator::Gt));
+        return Ok((rest, Operator::Gt));
     }
 
     Err(SyntaxError)

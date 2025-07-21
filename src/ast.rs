@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::fmt;
 
 #[derive(Debug)]
 pub enum Literal<'a> {
@@ -8,18 +9,17 @@ pub enum Literal<'a> {
     Integer(i64),
 }
 
-impl<'a> ToString for Literal<'a> {
-    fn to_string(&self) -> String {
+impl<'a> fmt::Display for Literal<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Literal::String(s) => {
                 if s.contains(' ') {
-                    format!("'{}'", s)
+                    write!(f, "'{}'", s)
                 } else {
-                    s.to_string()
+                    write!(f, "{}", s)
                 }
             }
-
-            Literal::Integer(i) => i.to_string(),
+            Literal::Integer(i) => write!(f, "{}", i),
         }
     }
 }
@@ -62,23 +62,19 @@ impl<T> ObjectTree<T> {
     }
 }
 
-impl<T: ToString> ToString for ObjectTree<T>
-where
-    T: ToString,
-{
-    fn to_string(&self) -> String {
-        let mut result = self.root.to_string();
+impl<T: fmt::Display> fmt::Display for ObjectTree<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.root)?;
         if !self.children.is_empty() {
-            result.push('>');
-
+            write!(f, ">")?;
             for (i, child) in self.children.iter().enumerate() {
                 if i > 0 {
-                    result.push('+');
+                    write!(f, "+")?;
                 }
-                result.push_str(&child.to_string());
+                write!(f, "{}", child)?;
             }
         }
-        result
+        Ok(())
     }
 }
 
@@ -93,17 +89,17 @@ pub enum Operator {
     Ge,
 }
 
-impl ToString for Operator {
-    fn to_string(&self) -> String {
-        match self {
+impl fmt::Display for Operator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
             Operator::Eq => "=",
             Operator::Ne => "!=",
             Operator::Lt => "<",
             Operator::Gt => ">",
             Operator::Le => "<=",
             Operator::Ge => ">=",
-        }
-        .to_string()
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -115,17 +111,9 @@ pub struct Predicate<'a, T> {
     value: Literal<'a>,
 }
 
-impl<'a, T> ToString for Predicate<'a, T>
-where
-    T: ToString,
-{
-    fn to_string(&self) -> String {
-        format!(
-            "{}{}{}",
-            self.identifier.to_string(),
-            self.operator.to_string(),
-            self.value.to_string()
-        )
+impl<'a, T: fmt::Display> fmt::Display for Predicate<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}{}", self.identifier, self.operator, self.value)
     }
 }
 
@@ -136,23 +124,19 @@ pub struct Query<'a, O, P> {
     pub predicates: Vec<Predicate<'a, P>>,
 }
 
-impl<'a, O, P> ToString for Query<'a, O, P>
-where
-    O: ToString,
-    P: ToString,
-{
-    fn to_string(&self) -> String {
-        let mut result = self.object.to_string();
+impl<'a, O: fmt::Display, P: fmt::Display> fmt::Display for Query<'a, O, P> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.object)?;
         if !self.predicates.is_empty() {
-            result.push(' ');
+            write!(f, " ")?;
             for (i, predicate) in self.predicates.iter().enumerate() {
                 if i > 0 {
-                    result.push(' ');
+                    write!(f, " ")?;
                 }
-                result.push_str(&predicate.to_string());
+                write!(f, "{}", predicate)?;
             }
         }
-        result
+        Ok(())
     }
 }
 
@@ -160,8 +144,8 @@ where
 #[derive(Debug)]
 pub struct SyntaxError;
 
-impl std::fmt::Display for SyntaxError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for SyntaxError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "syntax error")
     }
 }

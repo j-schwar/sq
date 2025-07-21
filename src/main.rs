@@ -8,7 +8,6 @@ use crate::{
     schema::{ColumnId, ObjectId, Schema, Score, ScoreContainer},
 };
 
-mod arena;
 mod ast;
 mod schema;
 mod sql;

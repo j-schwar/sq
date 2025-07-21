@@ -1,22 +1,5 @@
 use anyhow::Result;
 
-/// An identifier node.
-///
-/// Usually the name, or partial name, of an object, column, or other entity in the SQL-like syntax.
-#[derive(Debug)]
-pub struct Identifier<T> {
-    pub value: T,
-}
-
-impl<T: ToString> ToString for Identifier<T>
-where
-    T: ToString,
-{
-    fn to_string(&self) -> String {
-        self.value.to_string()
-    }
-}
-
 #[derive(Debug)]
 pub enum Literal<'a> {
     /// A string literal.
@@ -47,7 +30,7 @@ impl<'a> ToString for Literal<'a> {
 /// a child of `c`.
 #[derive(Debug)]
 pub struct ObjectTree<T> {
-    pub root: Identifier<T>,
+    pub root: T,
     pub children: Vec<ObjectTree<T>>,
 }
 
@@ -65,7 +48,7 @@ impl<T> ObjectTree<T> {
         ancestor_stack: &mut Vec<U>,
         f: &impl Fn(&mut Vec<U>, T) -> Result<U, E>,
     ) -> Result<ObjectTree<U>, E> {
-        let root = f(ancestor_stack, self.root.value)?;
+        let root = f(ancestor_stack, self.root)?;
         ancestor_stack.push(root);
 
         let mut children = Vec::new();
@@ -75,7 +58,6 @@ impl<T> ObjectTree<T> {
         }
 
         let root = ancestor_stack.pop().unwrap();
-        let root = Identifier { value: root };
         Ok(ObjectTree { root, children })
     }
 }
@@ -128,7 +110,7 @@ impl ToString for Operator {
 /// A predicate for filtering results in a query.
 #[derive(Debug)]
 pub struct Predicate<'a, T> {
-    identifier: Identifier<T>,
+    identifier: T,
     operator: Operator,
     value: Literal<'a>,
 }
@@ -194,19 +176,14 @@ fn skip_whitespace(input: &str) -> &str {
 
 /// Parses an identifier from the input string.
 #[tracing::instrument(level = "trace", err)]
-fn parse_identifier<'a>(input: &'a str) -> ParseResult<'a, Identifier<String>> {
+fn parse_identifier<'a>(input: &'a str) -> ParseResult<'a, String> {
     let input = skip_whitespace(input);
     for (i, c) in input.char_indices() {
         if !c.is_alphanumeric() && c != '_' {
             if i == 0 {
                 return Err(SyntaxError);
             }
-            return Ok((
-                &input[i..],
-                Identifier {
-                    value: input[..i].to_string(),
-                },
-            ));
+            return Ok((&input[i..], input[..i].to_string()));
         }
     }
 
@@ -214,12 +191,7 @@ fn parse_identifier<'a>(input: &'a str) -> ParseResult<'a, Identifier<String>> {
         return Err(SyntaxError);
     }
 
-    Ok((
-        "",
-        Identifier {
-            value: input.to_string(),
-        },
-    ))
+    Ok(("", input.to_string()))
 }
 
 #[tracing::instrument(level = "trace", err)]

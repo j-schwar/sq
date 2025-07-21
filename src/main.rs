@@ -308,8 +308,8 @@ mod tests {
 
         let query = ast::parse("user>priv").unwrap();
         let resolved_tree = resolve_object_tree(&mut schema, query.object).unwrap();
-        assert_eq!(resolved_tree.root.value, users_table_id);
+        assert_eq!(resolved_tree.root, users_table_id);
         assert_eq!(resolved_tree.children.len(), 1);
-        assert_eq!(resolved_tree.children[0].root.value, privilege_table_id);
+        assert_eq!(resolved_tree.children[0].root, privilege_table_id);
     }
 }

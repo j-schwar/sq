@@ -177,6 +177,11 @@ impl<'a> ObjectEvalContext<'a> {
     }
 }
 
+/// Normalizes a string to a consistent case for comparison.
+fn normalize_case(s: &str) -> String {
+    s.to_lowercase()
+}
+
 /// Resolves an object by name (or partial name) within the context of the given schema.
 fn resolve_object<'a>(ctx: &ObjectEvalContext<'a>, name: &str) -> Option<ObjectId> {
     // TODO: If we're resolving within the context of a parent object, we need to narrow down the
@@ -186,10 +191,10 @@ fn resolve_object<'a>(ctx: &ObjectEvalContext<'a>, name: &str) -> Option<ObjectI
     for (id, _) in ctx.schema.objects.iter() {
         let object_name = ctx.schema.objects.get(id).unwrap().name();
         let score = ctx.schema.score_of(id);
-        map.insert(object_name.to_string(), (id, score));
+        map.insert(normalize_case(object_name), (id, score));
     }
 
-    let Some(best_match) = find_best_match(&map, name) else {
+    let Some(best_match) = find_best_match(&map, &normalize_case(name)) else {
         return None;
     };
 
@@ -271,6 +276,22 @@ mod tests {
         assert_eq!(resolve_object(&mut ctx, "users"), Some(table_id));
         assert_eq!(resolve_object(&mut ctx, "active"), Some(view_id));
         assert_eq!(resolve_object(&mut ctx, "nonexistent"), None);
+    }
+
+    #[test]
+    fn test_resolve_object_case_insensitive() {
+        let mut schema = Schema::default();
+
+        let table_id = schema.objects.insert(Object::Table {
+            name: "Users".to_string(),
+            columns: vec![],
+        });
+
+        let mut ctx = ObjectEvalContext::new(&mut schema);
+
+        assert_eq!(resolve_object(&mut ctx, "users"), Some(table_id));
+        assert_eq!(resolve_object(&mut ctx, "USERS"), Some(table_id));
+        assert_eq!(resolve_object(&mut ctx, "UsErS"), Some(table_id));
     }
 
     #[test]

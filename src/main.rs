@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand, command};
 
+use crate::schema::Schema;
+
 mod arena;
 mod ast;
 mod schema;
@@ -31,13 +33,37 @@ struct Opts {
     command: Command,
 }
 
+fn fetch_schema() -> Schema {
+    // TODO: Fetch schema from cache or database.
+    let mut schema = Schema::default();
+
+    schema.objects.insert(schema::Object::Table {
+        name: "HM_VOYAGE".to_string(),
+        columns: vec![],
+    });
+
+    schema.objects.insert(schema::Object::Table {
+        name: "HM_VOYAGE_JOB".to_string(),
+        columns: vec![],
+    });
+
+    schema.objects.insert(schema::Object::Table {
+        name: "REF_DOMAIN".to_string(),
+        columns: vec![],
+    });
+
+    tracing::debug!("Loaded dummy schema");
+    schema
+}
+
 fn query(opts: QueryOpts) -> anyhow::Result<()> {
     let query_string = opts.query.join(" ");
     tracing::debug!("Executing query: {}", query_string);
 
+    let s = fetch_schema();
     let query = ast::parse(&query_string)?;
+    let query = schema::resolve_names(&s, query)?;
     println!("{:#?}", query);
-
     Ok(())
 }
 

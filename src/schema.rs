@@ -1,8 +1,10 @@
-use std::{cmp::Ordering, fmt::Display, time::SystemTime};
+use std::{cell::RefCell, cmp::Ordering, fmt::Display, time::SystemTime};
 
 use keywords::{KeywordMap, Match};
 use serde::{Deserialize, Serialize};
 use slotmap::{SlotMap, SparseSecondaryMap, new_key_type};
+
+use crate::ast::{ObjectTree, Query};
 
 new_key_type! { pub struct ObjectId; }
 new_key_type! { pub struct ColumnId; }
@@ -99,12 +101,28 @@ impl PartialOrd for Score {
     }
 }
 
+trait ScoreContainer<T> {
+    fn score_of(&self, key: T) -> Option<Score>;
+}
+
 #[derive(Default, Serialize, Deserialize)]
 pub struct Schema {
-    objects: SlotMap<ObjectId, Object>,
-    columns: SlotMap<ColumnId, Column>,
-    object_scores: SparseSecondaryMap<ObjectId, Score>,
-    column_scores: SparseSecondaryMap<ColumnId, Score>,
+    pub objects: SlotMap<ObjectId, Object>,
+    pub columns: SlotMap<ColumnId, Column>,
+    object_scores: RefCell<SparseSecondaryMap<ObjectId, Score>>,
+    column_scores: RefCell<SparseSecondaryMap<ColumnId, Score>>,
+}
+
+impl ScoreContainer<ObjectId> for Schema {
+    fn score_of(&self, key: ObjectId) -> Option<Score> {
+        self.object_scores.borrow().get(key).cloned()
+    }
+}
+
+impl ScoreContainer<ColumnId> for Schema {
+    fn score_of(&self, key: ColumnId) -> Option<Score> {
+        self.column_scores.borrow().get(key).cloned()
+    }
 }
 
 /// Finds the best match for a name in a [`KeywordMap`], returning the ID of the matched item.
@@ -149,25 +167,25 @@ where
 
 /// Context for evaluating objects in the schema.
 pub struct ObjectEvalContext<'a> {
-    schema: &'a mut Schema,
+    schema: &'a Schema,
 }
 
 impl<'a> ObjectEvalContext<'a> {
     /// Creates a new evaluation context for the given schema.
-    pub fn new(schema: &'a mut Schema) -> Self {
+    pub fn new(schema: &'a Schema) -> Self {
         Self { schema }
     }
 }
 
 /// Resolves an object by name (or partial name) within the context of the given schema.
-pub fn resolve_object<'a>(ctx: &mut ObjectEvalContext<'a>, name: &str) -> Option<ObjectId> {
+fn resolve_object<'a>(ctx: &ObjectEvalContext<'a>, name: &str) -> Option<ObjectId> {
     // TODO: If we're resolving within the context of a parent object, we need to narrow down the
     //  search to only objects that have foreign keys to the parent object.
 
     let mut map = KeywordMap::new();
     for (id, _) in ctx.schema.objects.iter() {
         let object_name = ctx.schema.objects.get(id).unwrap().name();
-        let score = ctx.schema.object_scores.get(id).cloned();
+        let score = ctx.schema.score_of(id);
         map.insert(object_name.to_string(), (id, score));
     }
 
@@ -176,19 +194,61 @@ pub fn resolve_object<'a>(ctx: &mut ObjectEvalContext<'a>, name: &str) -> Option
     };
 
     // Record a hit for the matched object to increase its score
-    if let Some(score) = ctx.schema.object_scores.get_mut(*best_match) {
+    let mut object_scores = ctx.schema.object_scores.borrow_mut();
+    if let Some(score) = object_scores.get_mut(*best_match) {
         score.record_hit();
     } else {
-        ctx.schema
-            .object_scores
-            .insert(*best_match, Score::default());
+        object_scores.insert(*best_match, Score::default());
     }
 
     Some(*best_match)
 }
 
+#[derive(Debug)]
+pub struct ResolutionError {
+    name: String,
+}
+
+impl Display for ResolutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "unable to resolve: '{}'", self.name)
+    }
+}
+
+impl std::error::Error for ResolutionError {}
+
+fn resolve_object_tree(
+    schema: &Schema,
+    tree: ObjectTree<String>,
+) -> Result<ObjectTree<ObjectId>, ResolutionError> {
+    tree.try_map_with_ancestors(|_, ident| {
+        let ctx = ObjectEvalContext::new(schema);
+        let Some(id) = resolve_object(&ctx, &ident) else {
+            return Err(ResolutionError { name: ident });
+        };
+
+        Ok(id)
+    })
+}
+
+/// Performs name resolution for a query using a given schema.
+pub fn resolve_names<'a>(
+    schema: &Schema,
+    query: Query<'a, String, String>,
+) -> Result<Query<'a, ObjectId, ColumnId>, ResolutionError> {
+    let object = resolve_object_tree(schema, query.object)?;
+
+    let query = Query {
+        object,
+        predicates: vec![],
+    };
+    Ok(query)
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::ast;
+
     use super::*;
     use test_log::test;
 
@@ -234,5 +294,26 @@ mod tests {
 
         // Resolve using a partial name and ensure the correct object is returned
         assert_eq!(resolve_object(&mut ctx, "us"), Some(table_id));
+    }
+
+    #[test]
+    fn test_resolve_object_tree() {
+        let mut schema = Schema::default();
+
+        let users_table_id = schema.objects.insert(Object::Table {
+            name: "auth_users".to_string(),
+            columns: vec![],
+        });
+
+        let privilege_table_id = schema.objects.insert(Object::Table {
+            name: "auth_privileges".to_string(),
+            columns: vec![],
+        });
+
+        let query = ast::parse("user>priv").unwrap();
+        let resolved_tree = resolve_object_tree(&mut schema, query.object).unwrap();
+        assert_eq!(resolved_tree.root.value, users_table_id);
+        assert_eq!(resolved_tree.children.len(), 1);
+        assert_eq!(resolved_tree.children[0].root.value, privilege_table_id);
     }
 }

@@ -1,9 +1,11 @@
+use anyhow::Result;
+
 /// An identifier node.
 ///
 /// Usually the name, or partial name, of an object, column, or other entity in the SQL-like syntax.
 #[derive(Debug)]
 pub struct Identifier<T> {
-    value: T,
+    pub value: T,
 }
 
 impl<T: ToString> ToString for Identifier<T>
@@ -45,8 +47,37 @@ impl<'a> ToString for Literal<'a> {
 /// a child of `c`.
 #[derive(Debug)]
 pub struct ObjectTree<T> {
-    root: Identifier<T>,
-    children: Vec<ObjectTree<T>>,
+    pub root: Identifier<T>,
+    pub children: Vec<ObjectTree<T>>,
+}
+
+impl<T> ObjectTree<T> {
+    pub fn try_map_with_ancestors<U, E>(
+        self,
+        f: impl Fn(&mut Vec<U>, T) -> Result<U, E>,
+    ) -> Result<ObjectTree<U>, E> {
+        let mut ancestor_stack = Vec::new();
+        self.try_map_with_ancestors_impl(&mut ancestor_stack, &f)
+    }
+
+    fn try_map_with_ancestors_impl<U, E>(
+        self,
+        ancestor_stack: &mut Vec<U>,
+        f: &impl Fn(&mut Vec<U>, T) -> Result<U, E>,
+    ) -> Result<ObjectTree<U>, E> {
+        let root = f(ancestor_stack, self.root.value)?;
+        ancestor_stack.push(root);
+
+        let mut children = Vec::new();
+        for child in self.children.into_iter() {
+            let child_tree = child.try_map_with_ancestors_impl(ancestor_stack, f)?;
+            children.push(child_tree);
+        }
+
+        let root = ancestor_stack.pop().unwrap();
+        let root = Identifier { value: root };
+        Ok(ObjectTree { root, children })
+    }
 }
 
 impl<T: ToString> ToString for ObjectTree<T>
@@ -118,14 +149,15 @@ where
 
 /// Models a SQL-like query.
 #[derive(Debug)]
-pub struct Query<'a, T> {
-    object: ObjectTree<T>,
-    predicates: Vec<Predicate<'a, T>>,
+pub struct Query<'a, O, P> {
+    pub object: ObjectTree<O>,
+    pub predicates: Vec<Predicate<'a, P>>,
 }
 
-impl<'a, T> ToString for Query<'a, T>
+impl<'a, O, P> ToString for Query<'a, O, P>
 where
-    T: ToString,
+    O: ToString,
+    P: ToString,
 {
     fn to_string(&self) -> String {
         let mut result = self.object.to_string();
@@ -332,7 +364,7 @@ fn parse_predicate<'a>(input: &'a str) -> ParseResult<'a, Predicate<'a, String>>
 /// defines the table/view being queries along with any joined objects (e.g., the `FROM` clause in a
 /// SQL statement), while the predicates define conditions for filtering results.
 #[tracing::instrument(level = "trace", err)]
-pub fn parse<'a>(input: &'a str) -> Result<Query<'a, String>, SyntaxError> {
+pub fn parse<'a>(input: &'a str) -> Result<Query<'a, String, String>, SyntaxError> {
     let input = skip_whitespace(input);
     let (input, object) = parse_object_tree(input)?;
 

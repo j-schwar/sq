@@ -157,7 +157,11 @@ where
         }
 
         Match::Prefix((value, score)) => {
-            tracing::debug!("Prefix match found: {:?}; score = {:?}", value, score);
+            tracing::debug!(
+                "Prefix match found: {:?}; score = {:?}",
+                value,
+                score.map(|s| s.value)
+            );
         }
     }
 

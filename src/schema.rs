@@ -98,8 +98,17 @@ impl PartialOrd for Score {
     }
 }
 
-pub(crate) trait ScoreContainer<T> {
-    fn score_of(&self, key: T) -> Option<Score>;
+pub(crate) trait ScoreContainer<K, V> {
+    /// Returns the score of the given key, if it exists.
+    fn score_of(&self, key: K) -> Option<Score>;
+
+    /// Allocates a new value with an optional score and returns its key.
+    fn alloc(&mut self, value: V, score: Option<Score>) -> K;
+
+    /// Allocates a new value without a score and returns its key.
+    fn alloc_without_score(&mut self, value: V) -> K {
+        self.alloc(value, None)
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -110,14 +119,34 @@ pub struct Schema {
     pub column_scores: RefCell<SparseSecondaryMap<ColumnId, Score>>,
 }
 
-impl ScoreContainer<ObjectId> for Schema {
+impl ScoreContainer<ObjectId, Object> for Schema {
     fn score_of(&self, key: ObjectId) -> Option<Score> {
         self.object_scores.borrow().get(key).cloned()
     }
+
+    fn alloc(&mut self, value: Object, score: Option<Score>) -> ObjectId {
+        let key = self.objects.insert(value);
+        if let Some(score) = score {
+            let mut scores = self.object_scores.borrow_mut();
+            scores.insert(key, score);
+        }
+
+        key
+    }
 }
 
-impl ScoreContainer<ColumnId> for Schema {
+impl ScoreContainer<ColumnId, Column> for Schema {
     fn score_of(&self, key: ColumnId) -> Option<Score> {
         self.column_scores.borrow().get(key).cloned()
+    }
+
+    fn alloc(&mut self, value: Column, score: Option<Score>) -> ColumnId {
+        let key = self.columns.insert(value);
+        if let Some(score) = score {
+            let mut scores = self.column_scores.borrow_mut();
+            scores.insert(key, score);
+        }
+
+        key
     }
 }

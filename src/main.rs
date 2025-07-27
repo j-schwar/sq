@@ -171,17 +171,17 @@ fn fetch_schema() -> Schema {
     // TODO: Fetch schema from cache or database.
     let mut schema = Schema::default();
 
-    schema.objects.insert(schema::Object::Table {
+    schema.alloc_without_score(schema::Object::Table {
         name: "HM_VOYAGE".to_string(),
         columns: vec![],
     });
 
-    schema.objects.insert(schema::Object::Table {
+    schema.alloc_without_score(schema::Object::Table {
         name: "HM_VOYAGE_JOB".to_string(),
         columns: vec![],
     });
 
-    schema.objects.insert(schema::Object::Table {
+    schema.alloc_without_score(schema::Object::Table {
         name: "REF_DOMAIN".to_string(),
         columns: vec![],
     });
@@ -234,12 +234,12 @@ mod tests {
     fn test_resolve_object_tree() {
         let mut schema = Schema::default();
 
-        let users_table_id = schema.objects.insert(Object::Table {
+        let users_table_id = schema.alloc_without_score(Object::Table {
             name: "AUTH_USERS".to_string(),
             columns: vec![],
         });
 
-        let privilege_table_id = schema.objects.insert(Object::Table {
+        let privilege_table_id = schema.alloc_without_score(Object::Table {
             name: "AUTH_PRIVILEGES".to_string(),
             columns: vec![],
         });
@@ -249,5 +249,27 @@ mod tests {
         assert_eq!(resolved_tree.root, users_table_id);
         assert_eq!(resolved_tree.children.len(), 1);
         assert_eq!(resolved_tree.children[0].root, privilege_table_id);
+    }
+
+    #[test]
+    fn test_resolve_object_tree_with_score() {
+        let mut schema = Schema::default();
+
+        let _ = schema.alloc_without_score(Object::Table {
+            name: "companions".to_string(),
+            columns: vec![],
+        });
+
+        let table = schema.alloc(
+            Object::Table {
+                name: "companies".to_string(),
+                columns: vec![],
+            },
+            Some(Score::default()),
+        );
+
+        let query = ast::parse("comp").unwrap();
+        let resolved_tree = query.object.resolve_names(&schema).unwrap();
+        assert_eq!(resolved_tree.root, table);
     }
 }

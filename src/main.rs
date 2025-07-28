@@ -5,7 +5,7 @@ use keywords::{KeywordMap, Match};
 
 use crate::{
     ast::{ObjectTree, Query},
-    schema::{ColumnId, ObjectId, Schema, Score, ScoreContainer},
+    schema::{ColumnId, Name, Object, ObjectId, Schema, Score, ScoreContainer},
 };
 
 mod ast;
@@ -25,7 +25,11 @@ where
     T: std::fmt::Debug,
 {
     let mut matches = map.find_by_partial_keyword(name).collect::<Vec<_>>();
-    tracing::debug!("Found {} matches", matches.len());
+    tracing::debug!(
+        "Found {} matches from {} possible options",
+        matches.len(),
+        map.len()
+    );
 
     matches.sort_by(|a, b| {
         let a = a.as_ref().1;
@@ -62,6 +66,35 @@ fn normalize_case(s: &str) -> String {
     s.to_lowercase()
 }
 
+/// Constructs a keyword map from an iterator over id, value pairs.
+fn create_id_keyword_map<'a, I, K, V>(iter: I) -> KeywordMap<String, (K, Option<Score>)>
+where
+    V: Name + 'a,
+    I: Iterator<Item = (K, &'a V, Option<Score>)>,
+{
+    let mut map = KeywordMap::new();
+    for (id, value, score) in iter {
+        let name = normalize_case(value.name());
+        map.insert(name, (id, score));
+    }
+
+    map
+}
+
+/// Fetches all other objects that reference a given object via a foreign key.
+fn foreign_objects(
+    schema: &Schema,
+    id: ObjectId,
+) -> impl Iterator<Item = (ObjectId, &Object, Option<Score>)> {
+    <Schema as ScoreContainer<'_, ObjectId, Object>>::iter_with_score(schema).filter(
+        move |(_, obj, _)| {
+            obj.foreign_keys()
+                .iter()
+                .any(|fk| fk.referenced_object == id)
+        },
+    )
+}
+
 /// Error type indicating name resolution could not be performed.
 #[derive(Debug)]
 struct ResolutionError {
@@ -95,17 +128,15 @@ impl NameResolution for ObjectTree<String> {
     type Output = ObjectTree<ObjectId>;
 
     fn resolve_names(self, ctx: &Self::Ctx) -> Result<Self::Output, ResolutionError> {
-        self.try_map_with_ancestors(|_, name| {
-            // TODO: If we're resolving within the context of a parent object we need to narrow down
-            // the search to only objects that have foreign keys to the parent object.
-
+        self.try_map_with_ancestors(|ancestors, name| {
             // Construct a keyword map for all possible objects given the current context.
-            let mut map = KeywordMap::new();
-            for (id, _) in ctx.objects.iter() {
-                let object_name = ctx.objects.get(id).unwrap().name();
-                let score = ctx.score_of(id);
-                map.insert(normalize_case(object_name), (id, score));
-            }
+            let map = if let Some(last) = ancestors.last() {
+                let iter = foreign_objects(ctx, *last);
+                create_id_keyword_map(iter)
+            } else {
+                let iter = <Schema as ScoreContainer<'_, ObjectId, Object>>::iter_with_score(ctx);
+                create_id_keyword_map(iter)
+            };
 
             // Find the best match for `name`.
             let Some(best_match) = find_best_match(&map, &normalize_case(&name)) else {
@@ -171,19 +202,22 @@ fn fetch_schema() -> Schema {
     // TODO: Fetch schema from cache or database.
     let mut schema = Schema::default();
 
-    schema.alloc_without_score(schema::Object::Table {
+    schema.alloc_without_score(Object::Table {
         name: "HM_VOYAGE".to_string(),
         columns: vec![],
+        foreign_keys: vec![],
     });
 
-    schema.alloc_without_score(schema::Object::Table {
+    schema.alloc_without_score(Object::Table {
         name: "HM_VOYAGE_JOB".to_string(),
         columns: vec![],
+        foreign_keys: vec![],
     });
 
-    schema.alloc_without_score(schema::Object::Table {
+    schema.alloc_without_score(Object::Table {
         name: "REF_DOMAIN".to_string(),
         columns: vec![],
+        foreign_keys: vec![],
     });
 
     tracing::debug!("Loaded dummy schema");
@@ -225,7 +259,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use crate::ast;
-    use crate::schema::Object;
+    use crate::schema::{Column, DataType, ForeignKey, Object};
 
     use super::*;
     use test_log::test;
@@ -234,14 +268,38 @@ mod tests {
     fn test_resolve_object_tree() {
         let mut schema = Schema::default();
 
+        let users_id = schema.alloc_without_score(Column {
+            name: "ID".to_string(),
+            data_type: DataType::Integer,
+            nullable: false,
+        });
+
         let users_table_id = schema.alloc_without_score(Object::Table {
             name: "AUTH_USERS".to_string(),
-            columns: vec![],
+            columns: vec![users_id],
+            foreign_keys: vec![],
+        });
+
+        let privilege_id = schema.alloc_without_score(Column {
+            name: "ID".to_string(),
+            data_type: DataType::Integer,
+            nullable: false,
+        });
+
+        let privilege_user_id = schema.alloc_without_score(Column {
+            name: "USER_ID".to_string(),
+            data_type: DataType::Integer,
+            nullable: false,
         });
 
         let privilege_table_id = schema.alloc_without_score(Object::Table {
             name: "AUTH_PRIVILEGES".to_string(),
-            columns: vec![],
+            columns: vec![privilege_id, privilege_user_id],
+            foreign_keys: vec![ForeignKey {
+                column: privilege_user_id,
+                referenced_object: users_table_id,
+                referenced_column: users_id,
+            }],
         });
 
         let query = ast::parse("user>priv").unwrap();
@@ -258,12 +316,14 @@ mod tests {
         let _ = schema.alloc_without_score(Object::Table {
             name: "companions".to_string(),
             columns: vec![],
+            foreign_keys: vec![],
         });
 
         let table = schema.alloc(
             Object::Table {
                 name: "companies".to_string(),
                 columns: vec![],
+                foreign_keys: vec![],
             },
             Some(Score::default()),
         );

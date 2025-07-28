@@ -3,6 +3,12 @@ use std::{cell::RefCell, cmp::Ordering, fmt::Display, time::SystemTime};
 use serde::{Deserialize, Serialize};
 use slotmap::{SlotMap, SparseSecondaryMap, new_key_type};
 
+/// Trait for named objects.
+pub trait Name {
+    /// Gets the name of this instance.
+    fn name(&self) -> &str;
+}
+
 new_key_type! { pub struct ObjectId; }
 new_key_type! { pub struct ColumnId; }
 
@@ -29,11 +35,27 @@ pub struct Column {
     pub nullable: bool,
 }
 
+impl Name for Column {
+    #[inline]
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+/// Models a foreign key relationship between columns in different objects.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ForeignKey {
+    pub column: ColumnId,
+    pub referenced_object: ObjectId,
+    pub referenced_column: ColumnId,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Object {
     Table {
         name: String,
         columns: Vec<ColumnId>,
+        foreign_keys: Vec<ForeignKey>,
     },
 
     View {
@@ -42,11 +64,19 @@ pub enum Object {
     },
 }
 
-impl Object {
-    /// Returns the name of the object.
-    pub fn name(&self) -> &str {
+impl Name for Object {
+    fn name(&self) -> &str {
         match self {
             Object::Table { name, .. } | Object::View { name, .. } => name,
+        }
+    }
+}
+
+impl Object {
+    pub fn foreign_keys(&self) -> &[ForeignKey] {
+        match self {
+            Object::Table { foreign_keys, .. } => foreign_keys,
+            Object::View { .. } => &[],
         }
     }
 }
@@ -98,12 +128,15 @@ impl PartialOrd for Score {
     }
 }
 
-pub(crate) trait ScoreContainer<K, V> {
+pub(crate) trait ScoreContainer<'a, K, V: 'a> {
     /// Returns the score of the given key, if it exists.
     fn score_of(&self, key: K) -> Option<Score>;
 
     /// Allocates a new value with an optional score and returns its key.
     fn alloc(&mut self, value: V, score: Option<Score>) -> K;
+
+    /// Returns an iterator over all the items in this collection paired with their scores.
+    fn iter_with_score(&'a self) -> impl Iterator<Item = (K, &'a V, Option<Score>)>;
 
     /// Allocates a new value without a score and returns its key.
     fn alloc_without_score(&mut self, value: V) -> K {
@@ -119,7 +152,7 @@ pub struct Schema {
     pub column_scores: RefCell<SparseSecondaryMap<ColumnId, Score>>,
 }
 
-impl ScoreContainer<ObjectId, Object> for Schema {
+impl ScoreContainer<'_, ObjectId, Object> for Schema {
     fn score_of(&self, key: ObjectId) -> Option<Score> {
         self.object_scores.borrow().get(key).cloned()
     }
@@ -133,9 +166,15 @@ impl ScoreContainer<ObjectId, Object> for Schema {
 
         key
     }
+
+    fn iter_with_score(&self) -> impl Iterator<Item = (ObjectId, &Object, Option<Score>)> {
+        self.objects
+            .iter()
+            .map(|(id, obj)| (id, obj, self.score_of(id)))
+    }
 }
 
-impl ScoreContainer<ColumnId, Column> for Schema {
+impl ScoreContainer<'_, ColumnId, Column> for Schema {
     fn score_of(&self, key: ColumnId) -> Option<Score> {
         self.column_scores.borrow().get(key).cloned()
     }
@@ -148,5 +187,11 @@ impl ScoreContainer<ColumnId, Column> for Schema {
         }
 
         key
+    }
+
+    fn iter_with_score(&self) -> impl Iterator<Item = (ColumnId, &Column, Option<Score>)> {
+        self.columns
+            .iter()
+            .map(|(id, col)| (id, col, self.score_of(id)))
     }
 }

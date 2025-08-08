@@ -5,7 +5,10 @@ use keywords::{KeywordMap, Match};
 
 use crate::{
     ast::{ObjectTree, Query},
-    schema::{ColumnId, Name, Object, ObjectId, Schema, Score, ScoreContainer},
+    schema::{
+        Column, ColumnId, DataType, ForeignKey, Name, Object, ObjectId, Schema, Score,
+        ScoreContainer,
+    },
 };
 
 mod ast;
@@ -202,16 +205,38 @@ fn fetch_schema() -> Schema {
     // TODO: Fetch schema from cache or database.
     let mut schema = Schema::default();
 
-    schema.alloc_without_score(Object::Table {
+    let visit_id = schema.alloc_without_score(Column {
+        name: "ID".to_string(),
+        data_type: DataType::Integer,
+        nullable: false,
+    });
+
+    let visit = schema.alloc_without_score(Object::Table {
         name: "HM_VOYAGE".to_string(),
-        columns: vec![],
+        columns: vec![visit_id],
         foreign_keys: vec![],
+    });
+
+    let movement_id = schema.alloc_without_score(Column {
+        name: "ID".to_string(),
+        data_type: DataType::Integer,
+        nullable: false,
+    });
+
+    let movement_visit_id = schema.alloc_without_score(Column {
+        name: "VOYAGE_ID".to_string(),
+        data_type: DataType::Integer,
+        nullable: false,
     });
 
     schema.alloc_without_score(Object::Table {
         name: "HM_VOYAGE_JOB".to_string(),
-        columns: vec![],
-        foreign_keys: vec![],
+        columns: vec![movement_id, movement_visit_id],
+        foreign_keys: vec![ForeignKey {
+            column: movement_visit_id,
+            referenced_column: visit_id,
+            referenced_object: visit,
+        }],
     });
 
     schema.alloc_without_score(Object::Table {

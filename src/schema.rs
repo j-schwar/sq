@@ -128,6 +128,15 @@ impl PartialOrd for Score {
     }
 }
 
+/// A key value pair combined with an optional score.
+///
+/// Returns as a result of [`ScoreContainer::iter_with_score`].
+pub(crate) struct ScoredKeyValue<'a, K, V> {
+    pub key: K,
+    pub value: &'a V,
+    pub score: Option<Score>,
+}
+
 pub(crate) trait ScoreContainer<'a, K, V: 'a> {
     /// Returns the score of the given key, if it exists.
     fn score_of(&self, key: K) -> Option<Score>;
@@ -136,7 +145,7 @@ pub(crate) trait ScoreContainer<'a, K, V: 'a> {
     fn alloc(&mut self, value: V, score: Option<Score>) -> K;
 
     /// Returns an iterator over all the items in this collection paired with their scores.
-    fn iter_with_score(&'a self) -> impl Iterator<Item = (K, &'a V, Option<Score>)>;
+    fn iter_with_score(&'a self) -> impl Iterator<Item = ScoredKeyValue<'a, K, V>>;
 
     /// Allocates a new value without a score and returns its key.
     fn alloc_without_score(&mut self, value: V) -> K {
@@ -150,6 +159,21 @@ pub struct Schema {
     pub columns: SlotMap<ColumnId, Column>,
     pub object_scores: RefCell<SparseSecondaryMap<ObjectId, Score>>,
     pub column_scores: RefCell<SparseSecondaryMap<ColumnId, Score>>,
+}
+
+impl Schema {
+    /// Fetches all other objects that reference a given object via a foreign key.
+    pub fn foreign_objects(
+        &self,
+        id: ObjectId,
+    ) -> impl Iterator<Item = ScoredKeyValue<ObjectId, Object>> {
+        <Schema as ScoreContainer<'_, ObjectId, Object>>::iter_with_score(self).filter(move |kv| {
+            kv.value
+                .foreign_keys()
+                .iter()
+                .any(|fk| fk.referenced_object == id)
+        })
+    }
 }
 
 impl ScoreContainer<'_, ObjectId, Object> for Schema {
@@ -167,10 +191,12 @@ impl ScoreContainer<'_, ObjectId, Object> for Schema {
         key
     }
 
-    fn iter_with_score(&self) -> impl Iterator<Item = (ObjectId, &Object, Option<Score>)> {
-        self.objects
-            .iter()
-            .map(|(id, obj)| (id, obj, self.score_of(id)))
+    fn iter_with_score(&self) -> impl Iterator<Item = ScoredKeyValue<ObjectId, Object>> {
+        self.objects.iter().map(|(id, obj)| ScoredKeyValue {
+            key: id,
+            value: obj,
+            score: self.score_of(id),
+        })
     }
 }
 
@@ -189,9 +215,11 @@ impl ScoreContainer<'_, ColumnId, Column> for Schema {
         key
     }
 
-    fn iter_with_score(&self) -> impl Iterator<Item = (ColumnId, &Column, Option<Score>)> {
-        self.columns
-            .iter()
-            .map(|(id, col)| (id, col, self.score_of(id)))
+    fn iter_with_score(&self) -> impl Iterator<Item = ScoredKeyValue<ColumnId, Column>> {
+        self.columns.iter().map(|(id, col)| ScoredKeyValue {
+            key: id,
+            value: col,
+            score: self.score_of(id),
+        })
     }
 }

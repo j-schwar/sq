@@ -7,7 +7,7 @@ use crate::{
     ast::{ObjectTree, Query},
     schema::{
         Column, ColumnId, DataType, ForeignKey, Name, Object, ObjectId, Schema, Score,
-        ScoreContainer,
+        ScoreContainer, ScoredKeyValue,
     },
 };
 
@@ -73,29 +73,15 @@ fn normalize_case(s: &str) -> String {
 fn create_id_keyword_map<'a, I, K, V>(iter: I) -> KeywordMap<String, (K, Option<Score>)>
 where
     V: Name + 'a,
-    I: Iterator<Item = (K, &'a V, Option<Score>)>,
+    I: Iterator<Item = ScoredKeyValue<'a, K, V>>,
 {
     let mut map = KeywordMap::new();
-    for (id, value, score) in iter {
-        let name = normalize_case(value.name());
-        map.insert(name, (id, score));
+    for kv in iter {
+        let name = normalize_case(kv.value.name());
+        map.insert(name, (kv.key, kv.score));
     }
 
     map
-}
-
-/// Fetches all other objects that reference a given object via a foreign key.
-fn foreign_objects(
-    schema: &Schema,
-    id: ObjectId,
-) -> impl Iterator<Item = (ObjectId, &Object, Option<Score>)> {
-    <Schema as ScoreContainer<'_, ObjectId, Object>>::iter_with_score(schema).filter(
-        move |(_, obj, _)| {
-            obj.foreign_keys()
-                .iter()
-                .any(|fk| fk.referenced_object == id)
-        },
-    )
 }
 
 /// Error type indicating name resolution could not be performed.
@@ -134,7 +120,7 @@ impl NameResolution for ObjectTree<String> {
         self.try_map_with_ancestors(|ancestors, name| {
             // Construct a keyword map for all possible objects given the current context.
             let map = if let Some(last) = ancestors.last() {
-                let iter = foreign_objects(ctx, *last);
+                let iter = ctx.foreign_objects(*last);
                 create_id_keyword_map(iter)
             } else {
                 let iter = <Schema as ScoreContainer<'_, ObjectId, Object>>::iter_with_score(ctx);

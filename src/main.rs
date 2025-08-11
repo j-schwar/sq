@@ -1,7 +1,9 @@
-use std::{cmp::Ordering, fmt::Display};
+use std::{cmp::Ordering, env, fmt::Display, process::ExitCode};
 
+use anyhow::anyhow;
 use clap::{Parser, Subcommand, command};
 use keywords::{KeywordMap, Match};
+use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{
     ast::{ObjectTree, Query},
@@ -12,6 +14,7 @@ use crate::{
 };
 
 mod ast;
+mod config;
 mod schema;
 mod sql;
 
@@ -179,12 +182,15 @@ enum Command {
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Opts {
-    /// Enable debug output.
-    #[arg(short, global = true, action = clap::ArgAction::Count)]
-    debug: u8,
+    /// Name of the connection profile to load.
+    profile: String,
 
     #[command(subcommand)]
     command: Command,
+
+    /// Enable debug output.
+    #[arg(short, global = true, action = clap::ArgAction::Count)]
+    debug: u8,
 }
 
 fn fetch_schema() -> Schema {
@@ -245,7 +251,28 @@ fn query(opts: QueryOpts) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main() {
+fn run(opts: Opts) -> anyhow::Result<()> {
+    let config = config::load().map_err(|err| anyhow!("invalid configuration: {}", err))?;
+    let Some(profile) = config.profiles.get(&opts.profile) else {
+        tracing::error!("Profile not found: {}", &opts.profile);
+        return Err(anyhow!("unknown profile"));
+    };
+    tracing::info!(
+        "Loaded profile: {}, driver = {}",
+        &opts.profile,
+        profile.driver.name()
+    );
+
+    match opts.command {
+        Command::Query(query_opts) => query(query_opts)?,
+    }
+
+    Ok(())
+}
+
+#[tracing::instrument]
+fn main() -> ExitCode {
+    let proc_name = env::args().next().unwrap_or_else(|| String::from("sq"));
     let opts = Opts::parse();
 
     // Setup tracing based on the debug level.
@@ -254,17 +281,22 @@ fn main() {
         1 => Some(tracing::Level::DEBUG),
         _ => Some(tracing::Level::TRACE),
     } {
-        tracing::subscriber::set_global_default(
-            tracing_subscriber::fmt().with_max_level(level).finish(),
-        )
-        .expect("Failed to set global default subscriber");
+        if let Err(err) = tracing::subscriber::set_global_default(
+            tracing_subscriber::fmt()
+                .with_max_level(level)
+                .with_span_events(FmtSpan::CLOSE)
+                .finish(),
+        ) {
+            eprintln!("{}: failed to initialize logging: {}", proc_name, err);
+        }
     }
 
-    if let Err(err) = match opts.command {
-        Command::Query(query_opts) => query(query_opts),
-    } {
-        eprintln!("{}: {}", std::env::args().next().unwrap(), err);
+    if let Err(err) = run(opts) {
+        eprintln!("{}: {}", proc_name, err);
+        return ExitCode::FAILURE;
     }
+
+    ExitCode::SUCCESS
 }
 
 #[cfg(test)]

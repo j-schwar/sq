@@ -6,15 +6,17 @@ use keywords::{KeywordMap, Match};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{
+    alg::{Name, Score},
     ast::{ObjectTree, Query},
-    schema::{
-        Column, ColumnId, DataType, ForeignKey, Name, Object, ObjectId, Schema, Score,
-        ScoreContainer, ScoredKeyValue,
-    },
+    config::Profile,
+    db::Database,
+    schema::{ColumnId, Object, ObjectId, Schema, ScoreContainer, ScoredKeyValue},
 };
 
+mod alg;
 mod ast;
 mod config;
+mod db;
 mod schema;
 mod sql;
 
@@ -138,9 +140,9 @@ impl NameResolution for ObjectTree<String> {
             // Record a hit for the matched object to increase its score.
             let mut object_scores = ctx.object_scores.borrow_mut();
             if let Some(score) = object_scores.get_mut(*best_match) {
-                score.record_hit();
+                // score.record_hit();
             } else {
-                object_scores.insert(*best_match, Score::default());
+                // object_scores.insert(*best_match, None);
             }
 
             // Return the best match.
@@ -171,11 +173,21 @@ struct QueryOpts {
     query: Vec<String>,
 }
 
+#[derive(Debug, Parser)]
+struct DefineOpts {
+    /// Name of the object to define.
+    object: String,
+}
+
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Executes a query against a database.
     #[command(alias = "q")]
     Query(QueryOpts),
+
+    /// Shows the definition of an object.
+    #[command(alias = "d")]
+    Define(DefineOpts),
 }
 
 /// sq - Simple Query
@@ -193,62 +205,23 @@ struct Opts {
     debug: u8,
 }
 
-fn fetch_schema() -> Schema {
-    // TODO: Fetch schema from cache or database.
-    let mut schema = Schema::default();
-
-    let visit_id = schema.alloc_without_score(Column {
-        name: "ID".to_string(),
-        data_type: DataType::Integer,
-        nullable: false,
-    });
-
-    let visit = schema.alloc_without_score(Object::Table {
-        name: "HM_VOYAGE".to_string(),
-        columns: vec![visit_id],
-        foreign_keys: vec![],
-    });
-
-    let movement_id = schema.alloc_without_score(Column {
-        name: "ID".to_string(),
-        data_type: DataType::Integer,
-        nullable: false,
-    });
-
-    let movement_visit_id = schema.alloc_without_score(Column {
-        name: "VOYAGE_ID".to_string(),
-        data_type: DataType::Integer,
-        nullable: false,
-    });
-
-    schema.alloc_without_score(Object::Table {
-        name: "HM_VOYAGE_JOB".to_string(),
-        columns: vec![movement_id, movement_visit_id],
-        foreign_keys: vec![ForeignKey {
-            column: movement_visit_id,
-            referenced_column: visit_id,
-            referenced_object: visit,
-        }],
-    });
-
-    schema.alloc_without_score(Object::Table {
-        name: "REF_DOMAIN".to_string(),
-        columns: vec![],
-        foreign_keys: vec![],
-    });
-
-    tracing::debug!("Loaded dummy schema");
-    schema
+fn fetch_schema(database: &dyn Database, _profile: &Profile) -> anyhow::Result<Schema> {
+    // TODO: load profile from cache if it exists
+    database.schema()
 }
 
-fn query(opts: QueryOpts) -> anyhow::Result<()> {
-    let query_string = opts.query.join(" ");
-    tracing::debug!("Executing query: {}", query_string);
+#[tracing::instrument(skip_all, err)]
+fn query(_database: &dyn Database, _profile: &Profile, _opts: &QueryOpts) -> anyhow::Result<()> {
+    todo!()
+}
 
-    let s = fetch_schema();
-    let query = ast::parse(&query_string)?.resolve_names(&s)?;
-    println!("{:#?}", query);
-    Ok(())
+#[tracing::instrument(skip_all, err)]
+fn define(database: &dyn Database, profile: &Profile, opts: &DefineOpts) -> anyhow::Result<()> {
+    let schema = fetch_schema(database, profile)?;
+    let objs = schema.objects_with_scores().collect::<Vec<_>>();
+    let obj = alg::find_best(&opts.object, objs.iter());
+
+    todo!()
 }
 
 fn run(opts: Opts) -> anyhow::Result<()> {
@@ -263,8 +236,14 @@ fn run(opts: Opts) -> anyhow::Result<()> {
         profile.driver.name()
     );
 
+    let database = db::connect(&profile.driver).map_err(|err| {
+        tracing::error!("Failed to connect to database: {}", err);
+        anyhow!("failed to connect to database")
+    })?;
+
     match opts.command {
-        Command::Query(query_opts) => query(query_opts)?,
+        Command::Query(query_opts) => query(database.as_ref(), profile, &query_opts)?,
+        Command::Define(define_opts) => define(database.as_ref(), profile, &define_opts)?,
     }
 
     Ok(())
@@ -368,7 +347,7 @@ mod tests {
                 columns: vec![],
                 foreign_keys: vec![],
             },
-            Some(Score::default()),
+            Some(Score::new(4.0)),
         );
 
         let query = ast::parse("comp").unwrap();

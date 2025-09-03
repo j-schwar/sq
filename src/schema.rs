@@ -1,13 +1,9 @@
-use std::{cell::RefCell, cmp::Ordering, fmt::Display, time::SystemTime};
+use std::{cell::RefCell, fmt::Display};
 
 use serde::{Deserialize, Serialize};
 use slotmap::{SlotMap, SparseSecondaryMap, new_key_type};
 
-/// Trait for named objects.
-pub trait Name {
-    /// Gets the name of this instance.
-    fn name(&self) -> &str;
-}
+use crate::alg::{Name, Score, ScoredValue};
 
 new_key_type! { pub struct ObjectId; }
 new_key_type! { pub struct ColumnId; }
@@ -81,53 +77,6 @@ impl Object {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct Score {
-    pub value: f64,
-    pub timestamp: u64,
-}
-
-impl Default for Score {
-    fn default() -> Self {
-        Self {
-            value: 4.0,
-            timestamp: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        }
-    }
-}
-
-impl Score {
-    pub fn record_hit(&mut self) {
-        if self.value < 1.0 {
-            self.value = 4.0;
-        } else {
-            self.value *= 2.0;
-        }
-
-        self.timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-    }
-}
-
-impl PartialEq for Score {
-    fn eq(&self, other: &Self) -> bool {
-        self.value == other.value
-    }
-}
-
-impl Eq for Score {}
-
-impl PartialOrd for Score {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.value.partial_cmp(&other.value)
-    }
-}
-
 /// A key value pair combined with an optional score.
 ///
 /// Returns as a result of [`ScoreContainer::iter_with_score`].
@@ -172,6 +121,13 @@ impl Schema {
                 .foreign_keys()
                 .iter()
                 .any(|fk| fk.referenced_object == id)
+        })
+    }
+
+    pub fn objects_with_scores(&self) -> impl Iterator<Item = ScoredValue<&Object>> {
+        self.objects.iter().map(|(k, v)| {
+            let score = self.object_scores.borrow().get(k).cloned();
+            ScoredValue { value: v, score }
         })
     }
 }

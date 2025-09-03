@@ -143,7 +143,11 @@ where
 
         let is_match = name
             .ascii_keywords()
-            .filter(|k| k.starts_with(pat))
+            .filter(|k| {
+                let k = k.to_ascii_lowercase();
+                let pat = pat.to_ascii_lowercase();
+                k.starts_with(&pat)
+            })
             .next()
             .is_some();
 

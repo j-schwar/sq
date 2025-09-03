@@ -1,9 +1,9 @@
-use std::{cell::RefCell, fmt::Display};
+use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
-use slotmap::{SlotMap, SparseSecondaryMap, new_key_type};
+use slotmap::{SlotMap, new_key_type};
 
-use crate::alg::{Name, Score, ScoredValue};
+use crate::alg::{Name, Score, Scored};
 
 new_key_type! { pub struct ObjectId; }
 new_key_type! { pub struct ColumnId; }
@@ -26,6 +26,8 @@ impl Display for DataType {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Column {
+    pub id: ColumnId,
+    pub score: Option<Score>,
     pub name: String,
     pub data_type: DataType,
     pub nullable: bool,
@@ -35,6 +37,13 @@ impl Name for Column {
     #[inline]
     fn name(&self) -> &str {
         &self.name
+    }
+}
+
+impl Scored for Column {
+    #[inline]
+    fn score(&self) -> Option<Score> {
+        self.score
     }
 }
 
@@ -49,12 +58,16 @@ pub struct ForeignKey {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Object {
     Table {
+        id: ObjectId,
+        score: Option<Score>,
         name: String,
         columns: Vec<ColumnId>,
         foreign_keys: Vec<ForeignKey>,
     },
 
     View {
+        id: ObjectId,
+        score: Option<Score>,
         name: String,
         columns: Vec<ColumnId>,
     },
@@ -68,6 +81,14 @@ impl Name for Object {
     }
 }
 
+impl Scored for Object {
+    fn score(&self) -> Option<Score> {
+        match self {
+            Object::Table { score, .. } | Object::View { score, .. } => *score,
+        }
+    }
+}
+
 impl Object {
     pub fn foreign_keys(&self) -> &[ForeignKey] {
         match self {
@@ -77,105 +98,17 @@ impl Object {
     }
 }
 
-/// A key value pair combined with an optional score.
-///
-/// Returns as a result of [`ScoreContainer::iter_with_score`].
-pub(crate) struct ScoredKeyValue<'a, K, V> {
-    pub key: K,
-    pub value: &'a V,
-    pub score: Option<Score>,
-}
-
-pub(crate) trait ScoreContainer<'a, K, V: 'a> {
-    /// Returns the score of the given key, if it exists.
-    fn score_of(&self, key: K) -> Option<Score>;
-
-    /// Allocates a new value with an optional score and returns its key.
-    fn alloc(&mut self, value: V, score: Option<Score>) -> K;
-
-    /// Returns an iterator over all the items in this collection paired with their scores.
-    fn iter_with_score(&'a self) -> impl Iterator<Item = ScoredKeyValue<'a, K, V>>;
-
-    /// Allocates a new value without a score and returns its key.
-    fn alloc_without_score(&mut self, value: V) -> K {
-        self.alloc(value, None)
-    }
-}
-
 #[derive(Default, Serialize, Deserialize)]
 pub struct Schema {
     pub objects: SlotMap<ObjectId, Object>,
     pub columns: SlotMap<ColumnId, Column>,
-    pub object_scores: RefCell<SparseSecondaryMap<ObjectId, Score>>,
-    pub column_scores: RefCell<SparseSecondaryMap<ColumnId, Score>>,
 }
 
 impl Schema {
     /// Fetches all other objects that reference a given object via a foreign key.
-    pub fn foreign_objects(
-        &self,
-        id: ObjectId,
-    ) -> impl Iterator<Item = ScoredKeyValue<ObjectId, Object>> {
-        <Schema as ScoreContainer<'_, ObjectId, Object>>::iter_with_score(self).filter(move |kv| {
-            kv.value
-                .foreign_keys()
-                .iter()
-                .any(|fk| fk.referenced_object == id)
-        })
-    }
-
-    pub fn objects_with_scores(&self) -> impl Iterator<Item = ScoredValue<&Object>> {
-        self.objects.iter().map(|(k, v)| {
-            let score = self.object_scores.borrow().get(k).cloned();
-            ScoredValue { value: v, score }
-        })
-    }
-}
-
-impl ScoreContainer<'_, ObjectId, Object> for Schema {
-    fn score_of(&self, key: ObjectId) -> Option<Score> {
-        self.object_scores.borrow().get(key).cloned()
-    }
-
-    fn alloc(&mut self, value: Object, score: Option<Score>) -> ObjectId {
-        let key = self.objects.insert(value);
-        if let Some(score) = score {
-            let mut scores = self.object_scores.borrow_mut();
-            scores.insert(key, score);
-        }
-
-        key
-    }
-
-    fn iter_with_score(&self) -> impl Iterator<Item = ScoredKeyValue<ObjectId, Object>> {
-        self.objects.iter().map(|(id, obj)| ScoredKeyValue {
-            key: id,
-            value: obj,
-            score: self.score_of(id),
-        })
-    }
-}
-
-impl ScoreContainer<'_, ColumnId, Column> for Schema {
-    fn score_of(&self, key: ColumnId) -> Option<Score> {
-        self.column_scores.borrow().get(key).cloned()
-    }
-
-    fn alloc(&mut self, value: Column, score: Option<Score>) -> ColumnId {
-        let key = self.columns.insert(value);
-        if let Some(score) = score {
-            let mut scores = self.column_scores.borrow_mut();
-            scores.insert(key, score);
-        }
-
-        key
-    }
-
-    fn iter_with_score(&self) -> impl Iterator<Item = ScoredKeyValue<ColumnId, Column>> {
-        self.columns.iter().map(|(id, col)| ScoredKeyValue {
-            key: id,
-            value: col,
-            score: self.score_of(id),
-        })
+    pub fn foreign_objects(&self, id: ObjectId) -> impl Iterator<Item = &Object> {
+        self.objects
+            .values()
+            .filter(move |o| o.foreign_keys().iter().any(|fk| fk.referenced_object == id))
     }
 }

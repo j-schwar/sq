@@ -226,61 +226,43 @@ impl PartialOrd for Score {
     }
 }
 
-/// A value paired with a [`Score`].
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ScoredValue<V> {
-    pub value: V,
-    pub score: Option<Score>,
+/// Trait for types which have a score.
+pub trait Scored {
+    /// Gets the score of this item.
+    fn score(&self) -> Option<Score>;
 }
 
-impl<V> ScoredValue<V> {
-    /// Constructs a new [`ScoredValue`] without a score.
-    pub fn new(value: V) -> Self {
-        ScoredValue { value, score: None }
-    }
-
-    /// Constructs a new [`ScoredValue`] with a provide score.
-    pub fn with_score(value: V, score: Score) -> Self {
-        ScoredValue {
-            value,
-            score: Some(score),
-        }
-    }
-}
-
-impl<V> PartialEq for ScoredValue<V> {
-    fn eq(&self, other: &Self) -> bool {
-        self.score == other.score
-    }
-}
-
-impl<V> PartialOrd for ScoredValue<V> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.score.partial_cmp(&other.score)
-    }
-}
-
-impl<V> Name for ScoredValue<V>
+impl<'a, T> Scored for &'a T
 where
-    V: Name,
+    T: Scored,
 {
-    fn name(&self) -> &str {
-        self.value.name()
+    fn score(&self) -> Option<Score> {
+        (*self).score()
     }
+}
+
+fn compare_matches<T>(a: &Match<T>, b: &Match<T>) -> Ordering
+where
+    T: Scored,
+{
+    a.as_ref()
+        .score()
+        .partial_cmp(&b.as_ref().score())
+        .unwrap_or(Ordering::Greater)
 }
 
 /// Finds the closest matching value in a given slice based on a partial name search.
-pub fn find_best<'a, V, I>(name: &str, items: I) -> Option<&'a ScoredValue<V>>
+pub fn find_best<'a, T, I>(name: &str, items: I) -> Option<&'a T>
 where
-    V: Name + std::fmt::Debug,
-    I: Iterator<Item = &'a ScoredValue<V>>,
+    T: Name + Scored,
+    I: Iterator<Item = &'a T>,
 {
     let mut matches = items
         .into_iter()
         .filter_map(|x| Match::match_named_value(name, x))
         .collect::<Vec<_>>();
 
-    matches.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Greater));
+    matches.sort_by(compare_matches);
     matches.into_iter().next().map(|m| m.into_inner())
 }
 
@@ -289,7 +271,7 @@ mod test {
     use super::*;
 
     #[derive(Debug)]
-    struct Value(&'static str);
+    struct Value(&'static str, Option<Score>);
 
     impl Name for Value {
         fn name(&self) -> &str {
@@ -297,36 +279,42 @@ mod test {
         }
     }
 
+    impl Scored for Value {
+        fn score(&self) -> Option<Score> {
+            self.1
+        }
+    }
+
     #[test]
     fn find_best_match_simple_case() {
         let items = [
-            ScoredValue::new(Value("foo")),
-            ScoredValue::with_score(Value("bar"), Score::new(10.0)),
-            ScoredValue::with_score(Value("baz"), Score::new(5.0)),
+            Value("foo", None),
+            Value("bar", Some(Score::new(10.0))),
+            Value("baz", Some(Score::new(5.0))),
         ];
 
         let best_match = find_best("ba", items.iter()).unwrap();
-        assert_eq!("bar", best_match.value.0);
+        assert_eq!("bar", best_match.0);
     }
 
     #[test]
     fn find_best_match_exact_match_preferred() {
         let items = [
-            ScoredValue::new(Value("foo")),
-            ScoredValue::with_score(Value("bar"), Score::new(10.0)),
-            ScoredValue::with_score(Value("baz"), Score::new(5.0)),
+            Value("foo", None),
+            Value("bar", Some(Score::new(10.0))),
+            Value("baz", Some(Score::new(5.0))),
         ];
 
         let best_match = find_best("baz", items.iter()).unwrap();
-        assert_eq!("baz", best_match.value.0);
+        assert_eq!("baz", best_match.0);
     }
 
     #[test]
     fn find_best_match_match_not_found() {
         let items = [
-            ScoredValue::new(Value("foo")),
-            ScoredValue::with_score(Value("bar"), Score::new(10.0)),
-            ScoredValue::with_score(Value("baz"), Score::new(5.0)),
+            Value("foo", None),
+            Value("bar", Some(Score::new(10.0))),
+            Value("baz", Some(Score::new(5.0))),
         ];
 
         let best_match = find_best("fizz", items.iter());

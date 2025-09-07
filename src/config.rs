@@ -42,9 +42,11 @@ pub struct Config {
     pub profiles: HashMap<String, Profile>,
 }
 
+/// Returns the path to the directory where the configuration file is stored, creating it if
+/// necessary.
 #[tracing::instrument(err)]
-pub fn load() -> anyhow::Result<Config> {
-    let mut path = if let Ok(home) = env::var("SQ_HOME") {
+pub fn config_dir() -> anyhow::Result<PathBuf> {
+    let path = if let Ok(home) = env::var("SQ_HOME") {
         PathBuf::from(home)
     } else {
         let mut path = dirs::config_dir()
@@ -55,6 +57,14 @@ pub fn load() -> anyhow::Result<Config> {
     };
 
     fs::create_dir_all(&path)?;
+    Ok(path)
+}
+
+/// Loads the configuration from the configuration file, creating it with default values if it
+/// does not exist.
+#[tracing::instrument(err)]
+pub fn load() -> anyhow::Result<Config> {
+    let mut path = config_dir()?;
     path.push("config.json");
 
     let mut options = OpenOptions::new();

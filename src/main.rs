@@ -4,7 +4,11 @@ use anyhow::anyhow;
 use clap::{Parser, Subcommand, command};
 use tracing_subscriber::fmt::format::FmtSpan;
 
-use crate::{config::Profile, db::Database, schema::Schema};
+use crate::{
+    config::{Config, Profile},
+    db::Database,
+    schema::Schema,
+};
 
 mod alg;
 mod ast;
@@ -42,7 +46,7 @@ enum Command {
 #[command(author, version, about, long_about = None)]
 struct Opts {
     /// Name of the connection profile to load.
-    profile: String,
+    profile: Option<String>,
 
     #[command(subcommand)]
     command: Command,
@@ -57,16 +61,44 @@ fn fetch_schema(database: &dyn Database, _profile: &Profile) -> anyhow::Result<S
     database.schema()
 }
 
+fn connect(config: &Config, opts: &Opts) -> anyhow::Result<Box<dyn Database>> {
+    let profile_name = opts.profile.as_deref().unwrap_or("default");
+    let profile = config.profiles.get(profile_name).ok_or_else(|| {
+        anyhow!(
+            "Profile not found: {}",
+            opts.profile.as_deref().unwrap_or("default")
+        )
+    })?;
+
+    db::connect(&profile.driver).map_err(|err| {
+        tracing::error!("Failed to connect to database: {}", err);
+        anyhow!("failed to connect to database")
+    })
+}
+
 #[tracing::instrument(skip_all, err)]
-fn query(_database: &dyn Database, _profile: &Profile, _opts: &QueryOpts) -> anyhow::Result<()> {
+fn query(_config: &Config, _opts: &Opts, _query_opts: &QueryOpts) -> anyhow::Result<()> {
     todo!()
 }
 
 #[tracing::instrument(skip_all, err)]
-fn define(database: &dyn Database, profile: &Profile, opts: &DefineOpts) -> anyhow::Result<()> {
-    let schema = fetch_schema(database, profile)?;
-    let Some(obj) = alg::find_best(&opts.object, schema.objects.values()) else {
-        tracing::error!("Object not found: {}", &opts.object);
+fn define(config: &Config, opts: &Opts, define_opts: &DefineOpts) -> anyhow::Result<()> {
+    let profile = opts
+        .profile
+        .iter()
+        .flat_map(|profile| config.profiles.get(profile))
+        .next()
+        .ok_or_else(|| {
+            anyhow!(
+                "Profile not found: {}",
+                opts.profile.as_deref().unwrap_or("default")
+            )
+        })?;
+
+    let database = connect(config, opts)?;
+    let schema = fetch_schema(database.as_ref(), profile)?;
+    let Some(obj) = alg::find_best(&define_opts.object, schema.objects.values()) else {
+        tracing::error!("Object not found: {}", &define_opts.object);
         return Err(anyhow!("unknown object"));
     };
 
@@ -92,25 +124,12 @@ fn define(database: &dyn Database, profile: &Profile, opts: &DefineOpts) -> anyh
 }
 
 fn run(opts: Opts) -> anyhow::Result<()> {
-    let config = config::load().map_err(|err| anyhow!("invalid configuration: {}", err))?;
-    let Some(profile) = config.profiles.get(&opts.profile) else {
-        tracing::error!("Profile not found: {}", &opts.profile);
-        return Err(anyhow!("unknown profile"));
-    };
-    tracing::info!(
-        "Loaded profile: {}, driver={}",
-        &opts.profile,
-        profile.driver.name()
-    );
+    let cfg = config::load().map_err(|err| anyhow!("invalid configuration: {}", err))?;
 
-    let database = db::connect(&profile.driver).map_err(|err| {
-        tracing::error!("Failed to connect to database: {}", err);
-        anyhow!("failed to connect to database")
-    })?;
-
-    match opts.command {
-        Command::Query(query_opts) => query(database.as_ref(), profile, &query_opts)?,
-        Command::Define(define_opts) => define(database.as_ref(), profile, &define_opts)?,
+    match &opts.command {
+        Command::Query(query_opts) => query(&cfg, &opts, query_opts)?,
+        Command::Define(define_opts) => define(&cfg, &opts, define_opts)?,
+        // Command::Config(config_opts) => config(&cfg, config_opts)?,
     }
 
     Ok(())

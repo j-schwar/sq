@@ -119,7 +119,7 @@ fn define(config: &Config, opts: &Opts, define_opts: &DefineOpts) -> anyhow::Res
 
     columns.sort_by(|a, b| a.name.cmp(&b.name));
     for column in columns {
-        println!("{} {}", column.name, column.data_type);
+        println!("{}", column.name);
     }
 
     Ok(())

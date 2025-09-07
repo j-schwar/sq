@@ -20,19 +20,22 @@ pub enum DriverConfig {
     },
 }
 
-impl DriverConfig {
-    pub const fn name(&self) -> &'static str {
-        match self {
-            DriverConfig::Odbc { .. } => "odbc",
-        }
-    }
-}
-
 /// Configuration options for a single connection profile.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
     pub driver: DriverConfig,
+
+    #[serde(skip)]
+    name: String,
+}
+
+impl Profile {
+    /// Gets the path to the schema file for this profile, if it can be determined.
+    pub fn schema_path(&self) -> Option<PathBuf> {
+        let path = config_dir().ok()?;
+        Some(path.join(format!("{}.schema.json", self.name)))
+    }
 }
 
 /// Configuration options for the whole application.
@@ -86,6 +89,12 @@ pub fn load() -> anyhow::Result<Config> {
     }
 
     file.rewind()?;
-    let config = serde_json::from_reader(file)?;
+    let mut config: Config = serde_json::from_reader(file)?;
+
+    // Ensure that profile names are set
+    for (name, profile) in config.profiles.iter_mut() {
+        profile.name = name.clone();
+    }
+
     Ok(config)
 }

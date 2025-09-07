@@ -1,11 +1,16 @@
-use std::{env, process::ExitCode};
+use std::{
+    env,
+    fs::File,
+    path::{self, Path},
+    process::ExitCode,
+};
 
 use anyhow::anyhow;
 use clap::{Parser, Subcommand, command};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{
-    alg::Name,
+    alg::{Name, Scored},
     config::{Config, Profile},
     db::Database,
     schema::Schema,
@@ -55,11 +60,51 @@ struct Opts {
     /// Enable debug output.
     #[arg(short, global = true, action = clap::ArgAction::Count)]
     debug: u8,
+
+    /// Do not use cached schema information.
+    #[arg(long, global = true)]
+    no_cache: bool,
 }
 
-fn fetch_schema(database: &dyn Database, _profile: &Profile) -> anyhow::Result<Schema> {
-    // TODO: load profile from cache if it exists
+fn fetch_schema(
+    database: &dyn Database,
+    profile: &Profile,
+    skip_cache: bool,
+) -> anyhow::Result<Schema> {
+    fn load_schema(path: &Path) -> anyhow::Result<Schema> {
+        let file = File::open(path)?;
+        let schema: Schema = serde_json::from_reader(file)?;
+        Ok(schema)
+    }
+
+    if !skip_cache {
+        if let Some(path) = profile.schema_path() {
+            match load_schema(&path) {
+                Ok(schema) => {
+                    tracing::info!("Loaded schema from {}", path.to_string_lossy());
+                    return Ok(schema);
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to load schema from file: {}", err);
+                }
+            }
+        }
+    }
+
+    tracing::info!("Fetching schema from database");
     database.schema()
+}
+
+fn save_schema(profile: &Profile, schema: &Schema) -> anyhow::Result<()> {
+    let Some(path) = profile.schema_path() else {
+        tracing::warn!("Unable to determine schema path, not saving");
+        return Ok(());
+    };
+
+    let file = File::create(&path)?;
+    serde_json::to_writer(file, schema)?;
+    tracing::info!("Saved schema to {}", path.to_string_lossy());
+    Ok(())
 }
 
 fn connect(config: &Config, opts: &Opts) -> anyhow::Result<Box<dyn Database>> {
@@ -91,18 +136,21 @@ fn define(config: &Config, opts: &Opts, define_opts: &DefineOpts) -> anyhow::Res
     };
 
     let database = connect(config, opts)?;
-    let schema = fetch_schema(database.as_ref(), profile)?;
+    let mut schema = fetch_schema(database.as_ref(), profile, opts.no_cache)?;
     let Some(object_name) = &define_opts.object else {
         for obj in schema.objects.values() {
             println!("{}", obj.name());
         }
+
+        save_schema(profile, &schema)?;
         return Ok(());
     };
 
-    let Some(obj) = alg::find_best(object_name, schema.objects.values()) else {
+    let Some(obj) = alg::find_best_mut(object_name, schema.objects.values_mut()) else {
         tracing::error!("Object not found: {}", object_name);
         return Err(anyhow!("unknown object"));
     };
+    alg::update_score(obj.score_mut());
 
     let column_ids = match obj {
         schema::Object::Table { columns, .. } | schema::Object::View { columns, .. } => columns,
@@ -122,6 +170,7 @@ fn define(config: &Config, opts: &Opts, define_opts: &DefineOpts) -> anyhow::Res
         println!("{}", column.name);
     }
 
+    save_schema(profile, &schema)?;
     Ok(())
 }
 
@@ -131,7 +180,6 @@ fn run(opts: Opts) -> anyhow::Result<()> {
     match &opts.command {
         Command::Query(query_opts) => query(&cfg, &opts, query_opts)?,
         Command::Define(define_opts) => define(&cfg, &opts, define_opts)?,
-        // Command::Config(config_opts) => config(&cfg, config_opts)?,
     }
 
     Ok(())

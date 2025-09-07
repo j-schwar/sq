@@ -234,6 +234,9 @@ impl PartialOrd for Score {
 pub trait Scored {
     /// Gets the score of this item.
     fn score(&self) -> Option<Score>;
+
+    /// Gets a mutable reference to the score of this item.
+    fn score_mut(&mut self) -> &mut Option<Score>;
 }
 
 impl<'a, T> Scored for &'a T
@@ -242,6 +245,23 @@ where
 {
     fn score(&self) -> Option<Score> {
         (*self).score()
+    }
+
+    fn score_mut(&mut self) -> &mut Option<Score> {
+        panic!("cannot get mutable score from immutable reference");
+    }
+}
+
+impl<'a, T> Scored for &'a mut T
+where
+    T: Scored,
+{
+    fn score(&self) -> Option<Score> {
+        (**self).score()
+    }
+
+    fn score_mut(&mut self) -> &mut Option<Score> {
+        (**self).score_mut()
     }
 }
 
@@ -256,10 +276,10 @@ where
 }
 
 /// Finds the closest matching value in a given slice based on a partial name search.
-pub fn find_best<'a, T, I>(name: &str, items: I) -> Option<&'a T>
+pub fn find_best_mut<'a, T, I>(name: &str, items: I) -> Option<&'a mut T>
 where
     T: Name + Scored,
-    I: Iterator<Item = &'a T>,
+    I: Iterator<Item = &'a mut T>,
 {
     let mut matches = items
         .into_iter()
@@ -268,6 +288,39 @@ where
 
     matches.sort_by(compare_matches);
     matches.into_iter().next().map(|m| m.into_inner())
+}
+
+/// Updates a given score according to usage patterns.
+///
+/// This function should be called when an item is used or selected.
+pub fn update_score(score: &mut Option<Score>) {
+    let Some(s) = score else {
+        *score = Some(Score::new(1.0));
+        return;
+    };
+
+    // Following zoxide's algorithm for score calculation:
+    // * If this score was last referenced within an hour: score * 4
+    // * If this score was last referenced within a day: score * 2
+    // * If this score was last referenced within a week: score / 2
+    // * Otherwise: score / 4
+    //
+    // ref: https://github.com/ajeetdsouza/zoxide/wiki/Algorithm
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let age = now.saturating_sub(s.timestamp);
+    s.timestamp = now;
+    s.value = if age < 3600 {
+        s.value * 4.0
+    } else if age < 86400 {
+        s.value * 2.0
+    } else if age < 604800 {
+        s.value / 2.0
+    } else {
+        s.value / 4.0
+    };
 }
 
 #[cfg(test)]
@@ -287,41 +340,45 @@ mod test {
         fn score(&self) -> Option<Score> {
             self.1
         }
+
+        fn score_mut(&mut self) -> &mut Option<Score> {
+            &mut self.1
+        }
     }
 
     #[test]
     fn find_best_match_simple_case() {
-        let items = [
+        let mut items = [
             Value("foo", None),
             Value("bar", Some(Score::new(10.0))),
             Value("baz", Some(Score::new(5.0))),
         ];
 
-        let best_match = find_best("ba", items.iter()).unwrap();
+        let best_match = find_best_mut("ba", items.iter_mut()).unwrap();
         assert_eq!("bar", best_match.0);
     }
 
     #[test]
     fn find_best_match_exact_match_preferred() {
-        let items = [
+        let mut items = [
             Value("foo", None),
             Value("bar", Some(Score::new(10.0))),
             Value("baz", Some(Score::new(5.0))),
         ];
 
-        let best_match = find_best("baz", items.iter()).unwrap();
+        let best_match = find_best_mut("baz", items.iter_mut()).unwrap();
         assert_eq!("baz", best_match.0);
     }
 
     #[test]
     fn find_best_match_match_not_found() {
-        let items = [
+        let mut items = [
             Value("foo", None),
             Value("bar", Some(Score::new(10.0))),
             Value("baz", Some(Score::new(5.0))),
         ];
 
-        let best_match = find_best("fizz", items.iter());
+        let best_match = find_best_mut("fizz", items.iter_mut());
         assert!(best_match.is_none());
     }
 }

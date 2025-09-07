@@ -45,6 +45,11 @@ impl Scored for Column {
     fn score(&self) -> Option<Score> {
         self.score
     }
+
+    #[inline]
+    fn score_mut(&mut self) -> &mut Option<Score> {
+        &mut self.score
+    }
 }
 
 /// Models a foreign key relationship between columns in different objects.
@@ -85,6 +90,12 @@ impl Scored for Object {
     fn score(&self) -> Option<Score> {
         match self {
             Object::Table { score, .. } | Object::View { score, .. } => *score,
+        }
+    }
+
+    fn score_mut(&mut self) -> &mut Option<Score> {
+        match self {
+            Object::Table { score, .. } | Object::View { score, .. } => score,
         }
     }
 }

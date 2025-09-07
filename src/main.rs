@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand, command};
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use crate::{
+    alg::Name,
     config::{Config, Profile},
     db::Database,
     schema::Schema,
@@ -27,7 +28,7 @@ struct QueryOpts {
 #[derive(Debug, Parser)]
 struct DefineOpts {
     /// Name of the object to define.
-    object: String,
+    object: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -83,22 +84,23 @@ fn query(_config: &Config, _opts: &Opts, _query_opts: &QueryOpts) -> anyhow::Res
 
 #[tracing::instrument(skip_all, err)]
 fn define(config: &Config, opts: &Opts, define_opts: &DefineOpts) -> anyhow::Result<()> {
-    let profile = opts
-        .profile
-        .iter()
-        .flat_map(|profile| config.profiles.get(profile))
-        .next()
-        .ok_or_else(|| {
-            anyhow!(
-                "Profile not found: {}",
-                opts.profile.as_deref().unwrap_or("default")
-            )
-        })?;
+    let profile = opts.profile.as_deref().unwrap_or("default");
+    let Some(profile) = config.profiles.get(profile) else {
+        tracing::error!("Profile not found: {}", profile);
+        return Err(anyhow!("unknown profile"));
+    };
 
     let database = connect(config, opts)?;
     let schema = fetch_schema(database.as_ref(), profile)?;
-    let Some(obj) = alg::find_best(&define_opts.object, schema.objects.values()) else {
-        tracing::error!("Object not found: {}", &define_opts.object);
+    let Some(object_name) = &define_opts.object else {
+        for obj in schema.objects.values() {
+            println!("{}", obj.name());
+        }
+        return Ok(());
+    };
+
+    let Some(obj) = alg::find_best(object_name, schema.objects.values()) else {
+        tracing::error!("Object not found: {}", object_name);
         return Err(anyhow!("unknown object"));
     };
 

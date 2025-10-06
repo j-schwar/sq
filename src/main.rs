@@ -1,9 +1,4 @@
-use std::{
-    env,
-    fs::File,
-    path::{self, Path},
-    process::ExitCode,
-};
+use std::{env, fs::File, path::Path, process::ExitCode};
 
 use anyhow::anyhow;
 use clap::{Parser, Subcommand, command};
@@ -123,8 +118,10 @@ fn connect(config: &Config, opts: &Opts) -> anyhow::Result<Box<dyn Database>> {
 }
 
 #[tracing::instrument(skip_all, err)]
-fn query(_config: &Config, _opts: &Opts, _query_opts: &QueryOpts) -> anyhow::Result<()> {
-    todo!()
+fn query(_config: &Config, _opts: &Opts, query_opts: &QueryOpts) -> anyhow::Result<()> {
+    let query = query_opts.query.join(" ");
+    let _ = ast::parse(&query)?;
+    todo!();
 }
 
 #[tracing::instrument(skip_all, err)]

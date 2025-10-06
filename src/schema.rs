@@ -117,6 +117,7 @@ pub struct Schema {
 
 impl Schema {
     /// Fetches all other objects that reference a given object via a foreign key.
+    #[allow(dead_code)]
     pub fn foreign_objects(&self, id: ObjectId) -> impl Iterator<Item = &Object> {
         self.objects
             .values()

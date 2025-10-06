@@ -34,34 +34,6 @@ pub struct ObjectTree<T> {
     pub children: Vec<ObjectTree<T>>,
 }
 
-impl<T> ObjectTree<T> {
-    pub fn try_map_with_ancestors<U, E>(
-        self,
-        f: impl Fn(&mut Vec<U>, T) -> Result<U, E>,
-    ) -> Result<ObjectTree<U>, E> {
-        let mut ancestor_stack = Vec::new();
-        self.try_map_with_ancestors_impl(&mut ancestor_stack, &f)
-    }
-
-    fn try_map_with_ancestors_impl<U, E>(
-        self,
-        ancestor_stack: &mut Vec<U>,
-        f: &impl Fn(&mut Vec<U>, T) -> Result<U, E>,
-    ) -> Result<ObjectTree<U>, E> {
-        let root = f(ancestor_stack, self.root)?;
-        ancestor_stack.push(root);
-
-        let mut children = Vec::new();
-        for child in self.children.into_iter() {
-            let child_tree = child.try_map_with_ancestors_impl(ancestor_stack, f)?;
-            children.push(child_tree);
-        }
-
-        let root = ancestor_stack.pop().unwrap();
-        Ok(ObjectTree { root, children })
-    }
-}
-
 impl<T: fmt::Display> fmt::Display for ObjectTree<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.root)?;
@@ -268,7 +240,7 @@ fn parse_literal<'a>(input: &'a str) -> ParseResult<'a, Literal<'a>> {
 
 /// Parses an operator from the input string.
 #[tracing::instrument(level = "trace", err)]
-fn parse_operator(input: &str) -> ParseResult<Operator> {
+fn parse_operator(input: &str) -> ParseResult<'_, Operator> {
     let input = skip_whitespace(input);
     if let Some(rest) = input.strip_prefix("=") {
         return Ok((rest, Operator::Eq));

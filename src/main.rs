@@ -12,7 +12,7 @@ use crate::{
 };
 
 mod alg;
-mod ast;
+mod query;
 mod config;
 mod db;
 mod schema;
@@ -103,8 +103,8 @@ fn connect(config: &Config, opts: &Opts) -> anyhow::Result<Box<dyn Database>> {
 #[tracing::instrument(skip_all, err)]
 fn query(_config: &Config, _opts: &Opts, query_opts: &QueryOpts) -> anyhow::Result<()> {
     let query = query_opts.query.join(" ");
-    let _ = ast::parse(&query)?;
-    todo!();
+    let _ = query::parse(&query)?;
+    todo!()
 }
 
 #[tracing::instrument(skip_all, err)]

@@ -1,4 +1,4 @@
-use std::{env, fs::File, path::Path, process::ExitCode};
+use std::{env, fs::File, process::ExitCode};
 
 use anyhow::anyhow;
 use clap::{Parser, Subcommand, command};
@@ -61,31 +61,16 @@ struct Opts {
     no_cache: bool,
 }
 
-fn fetch_schema(
-    database: &dyn Database,
-    profile: &Profile,
-    skip_cache: bool,
-) -> anyhow::Result<Schema> {
-    fn load_schema(path: &Path) -> anyhow::Result<Schema> {
-        let file = File::open(path)?;
-        let schema: Schema = serde_json::from_reader(file)?;
-        Ok(schema)
-    }
-
-    if !skip_cache && let Some(path) = profile.schema_path() {
-        match load_schema(&path) {
-            Ok(schema) => {
-                tracing::info!("Loaded schema from {}", path.to_string_lossy());
-                return Ok(schema);
-            }
-            Err(err) => {
-                tracing::warn!("Failed to load schema from file: {}", err);
-            }
-        }
-    }
-
-    tracing::info!("Fetching schema from database");
-    database.schema()
+/// Loads the cached schema for a given profile.
+///
+/// Returns [`None`] if no cached schema exits for the given profile or the schema could not be
+/// read. In either case, the schema should be fetched from the database instead.
+fn load_cached_schema(profile: &Profile) -> Option<Schema> {
+    let path = profile.schema_path()?;
+    let file = File::open(&path).ok()?;
+    let schema = serde_json::from_reader(file).ok()?;
+    tracing::info!("Loaded schema from {}", path.to_string_lossy());
+    Some(schema)
 }
 
 fn save_schema(profile: &Profile, schema: &Schema) -> anyhow::Result<()> {
@@ -130,8 +115,15 @@ fn define(config: &Config, opts: &Opts, define_opts: &DefineOpts) -> anyhow::Res
         return Err(anyhow!("unknown profile"));
     };
 
-    let database = connect(config, opts)?;
-    let mut schema = fetch_schema(database.as_ref(), profile, opts.no_cache)?;
+    let mut schema = if !opts.no_cache
+        && let Some(schema) = load_cached_schema(profile)
+    {
+        schema
+    } else {
+        let database = connect(config, opts)?;
+        database.schema()?
+    };
+
     let Some(object_name) = &define_opts.object else {
         for obj in schema.objects.values() {
             println!("{}", obj.name());

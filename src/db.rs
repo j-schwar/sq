@@ -120,7 +120,7 @@ impl Database for MsSql {
                             id,
                             score: None,
                             name: active_table.clone().unwrap(),
-                            columns: columns.drain(..).collect(),
+                            columns: std::mem::take(&mut columns),
                             foreign_keys: Vec::new(),
                         },
 
@@ -128,7 +128,7 @@ impl Database for MsSql {
                             id,
                             score: None,
                             name: active_table.clone().unwrap(),
-                            columns: columns.drain(..).collect(),
+                            columns: std::mem::take(&mut columns),
                         },
                         _ => panic!("Unknown table type: {:?}", active_table_type),
                     });
@@ -140,10 +140,7 @@ impl Database for MsSql {
             }
 
             let column_name = std::str::from_utf8(r[2]).unwrap_or_default();
-            let nullable = match r[3] {
-                b"YES" => true,
-                _ => false,
-            };
+            let nullable = matches!(r[3], b"YES");
             let data_type = match r[4] {
                 b"int" => DataType::Integer,
                 _ => DataType::Unknown,
@@ -171,7 +168,7 @@ impl Database for MsSql {
                         id,
                         score: None,
                         name: active_table,
-                        columns: columns.drain(..).collect(),
+                        columns: std::mem::take(&mut columns),
                         foreign_keys: Vec::new(),
                     },
 
@@ -179,7 +176,7 @@ impl Database for MsSql {
                         id,
                         score: None,
                         name: active_table,
-                        columns: columns.drain(..).collect(),
+                        columns: std::mem::take(&mut columns),
                     },
                     _ => panic!("Unknown table type: {:?}", active_table_type),
                 });

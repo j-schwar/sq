@@ -72,16 +72,14 @@ fn fetch_schema(
         Ok(schema)
     }
 
-    if !skip_cache {
-        if let Some(path) = profile.schema_path() {
-            match load_schema(&path) {
-                Ok(schema) => {
-                    tracing::info!("Loaded schema from {}", path.to_string_lossy());
-                    return Ok(schema);
-                }
-                Err(err) => {
-                    tracing::warn!("Failed to load schema from file: {}", err);
-                }
+    if !skip_cache && let Some(path) = profile.schema_path() {
+        match load_schema(&path) {
+            Ok(schema) => {
+                tracing::info!("Loaded schema from {}", path.to_string_lossy());
+                return Ok(schema);
+            }
+            Err(err) => {
+                tracing::warn!("Failed to load schema from file: {}", err);
             }
         }
     }
@@ -192,15 +190,13 @@ fn main() -> ExitCode {
         0 => None,
         1 => Some(tracing::Level::DEBUG),
         _ => Some(tracing::Level::TRACE),
-    } {
-        if let Err(err) = tracing::subscriber::set_global_default(
-            tracing_subscriber::fmt()
-                .with_max_level(level)
-                .with_span_events(FmtSpan::CLOSE)
-                .finish(),
-        ) {
-            eprintln!("{}: failed to initialize logging: {}", proc_name, err);
-        }
+    } && let Err(err) = tracing::subscriber::set_global_default(
+        tracing_subscriber::fmt()
+            .with_max_level(level)
+            .with_span_events(FmtSpan::CLOSE)
+            .finish(),
+    ) {
+        eprintln!("{}: failed to initialize logging: {}", proc_name, err);
     }
 
     if let Err(err) = run(opts) {

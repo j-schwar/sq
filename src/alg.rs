@@ -98,7 +98,7 @@ pub trait Name {
     fn name(&self) -> &str;
 }
 
-impl<'a, T> Name for &'a T
+impl<T> Name for &T
 where
     T: Name,
 {
@@ -107,7 +107,7 @@ where
     }
 }
 
-impl<'a, T> Name for &'a mut T
+impl<T> Name for &mut T
 where
     T: Name,
 {
@@ -141,15 +141,11 @@ where
             return Some(Match::Exact(v));
         }
 
-        let is_match = name
-            .ascii_keywords()
-            .filter(|k| {
-                let k = k.to_ascii_lowercase();
-                let pat = pat.to_ascii_lowercase();
-                k.starts_with(&pat)
-            })
-            .next()
-            .is_some();
+        let is_match = name.ascii_keywords().any(|k| {
+            let k = k.to_ascii_lowercase();
+            let pat = pat.to_ascii_lowercase();
+            k.starts_with(&pat)
+        });
 
         if is_match {
             Some(Match::Prefix(v))
@@ -239,7 +235,7 @@ pub trait Scored {
     fn score_mut(&mut self) -> &mut Option<Score>;
 }
 
-impl<'a, T> Scored for &'a T
+impl<T> Scored for &T
 where
     T: Scored,
 {
@@ -252,7 +248,7 @@ where
     }
 }
 
-impl<'a, T> Scored for &'a mut T
+impl<T> Scored for &mut T
 where
     T: Scored,
 {

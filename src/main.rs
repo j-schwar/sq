@@ -12,9 +12,9 @@ use crate::{
 };
 
 mod alg;
-mod query;
 mod config;
 mod db;
+mod query;
 mod schema;
 mod sql;
 

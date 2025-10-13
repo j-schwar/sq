@@ -9,16 +9,7 @@ use std::{
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
-/// Configuration options for SQL drivers.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum DriverConfig {
-    #[serde(rename_all = "camelCase")]
-    Odbc {
-        /// Connection string for the ODBC driver.
-        connection_string: String,
-    },
-}
+use crate::db::DriverConfig;
 
 /// Configuration options for a single connection profile.
 #[derive(Debug, Serialize, Deserialize)]

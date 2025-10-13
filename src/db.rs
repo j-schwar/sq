@@ -1,8 +1,11 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::schema::Schema;
 
 mod mssql;
+mod sqlite;
 
 /// Configuration options for SQL drivers.
 #[derive(Debug, Serialize, Deserialize)]
@@ -12,6 +15,12 @@ pub enum DriverConfig {
     Odbc {
         /// Connection string for the ODBC driver.
         connection_string: String,
+    },
+
+    #[serde(rename_all = "camelCase")]
+    Sqlite {
+        /// Sqlite database file.
+        file: PathBuf,
     },
 }
 
@@ -30,5 +39,6 @@ pub(crate) trait Database {
 pub(crate) fn connect(config: &DriverConfig) -> anyhow::Result<Box<dyn Database>> {
     match config {
         DriverConfig::Odbc { connection_string } => mssql::connect(connection_string),
+        DriverConfig::Sqlite { file } => sqlite::connect(file),
     }
 }
